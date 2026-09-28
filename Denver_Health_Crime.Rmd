@@ -1,0 +1,165 @@
+---
+title: "Denver_Health_Crime"
+output: pdf_document
+date: "2026-07-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(cluster)
+library(factoextra)
+
+```
+
+
+# Denver Crime Rates & Health Facility Access
+
+- This project is understanding crimes rates in the Denver area and their proximity to health facilities.
+
+  - Specifically, this data is looking at violent crimes, substance crimes, and total crimes combined with mental health facilities, substance treatment facilities, and total health       centers. All of this is split up into the different zip codes of the Denver metro area. 
+
+- This project uses data from the Colorado Information Marketplace and the Open Data Catalog. 
+
+## Descriptive Statistics
+
+- First, the data needs to be brought into R from the CSV file that we created using SQL and Python.
+
+```{r}
+
+df <- read.csv('clean_crimes.csv')
+
+```
+
+- Next, looking at the total amount of crimes in the Denver area and looking at the zip code with the most crimes overall.
+
+```{r}
+total_crime <- sum(df$total_crimes)
+
+total_crime
+
+total_crime_table <- aggregate(df$total_crimes, list(zip_codes = df$zip_code), FUN = 'mean')
+total_crime_table <- subset(total_crime_table, x > 0)
+
+total_crime_table
+```
+
+- There is only 27 zip codes that have crimes greater than 0 which is included in the table above along with the total crimes in the Denver Metro Area. 
+
+- I'd like to do the same for the health centers now. 
+
+```{r}
+
+total_centers <- sum(df$total_health_centers)
+
+total_centers
+
+total_centers_table <- aggregate(df$total_health_centers, list(zip_codes = df$zip_code), FUN = 'mean')
+total_centers_table <- subset(total_centers_table, x > 0)
+
+total_centers_table
+
+```
+
+- There are a small number of total health centers; however, there is at least one health center in I believe all the different neighborhoods. 
+
+## Correlations
+
+- For more main analyses I'd like to run a correlation between the number of violent crimes and the number of mental health centers.
+
+```{r}
+
+correlation_violent <- cor(df$violent_crimes,df$mental_health_centers, method = 'pearson')
+
+correlation_violent
+
+```
+- The value of the correlation is -0.064 which is a non-existent relationship between these two variables. 
+
+- I'd like to see the correlation of substance crimes and the number of substance treatment centers next.
+
+```{r}
+
+correlation_substance <- cor(df$substance_crimes,df$substance_treatment_centers, method = 'pearson')
+
+correlation_substance
+
+```
+- The r value here is -0.024, which is another non-existent relationship between these two variables.
+
+## K-mean Clustering
+
+- I want to check out some unsupervised machine learning with K-means clustering.
+
+```{r}
+
+cluster_data <- df %>%
+  select(total_crimes, violent_crimes, total_health_centers, mental_health_centers) %>%
+  scale()
+
+fviz_nbclust(cluster_data, kmeans, method = "wss") +
+  labs(title = "Elbow Method for Optimal Clusters")
+
+```
+
+- Looks like the optimal number of clusters is 9. I'm planning on looking at 3 and 5 just to see the graphs.
+
+```{r}
+
+set.seed(303)
+kmeans_result <- kmeans(cluster_data, centers = 3, nstart = 25)
+
+df$cluster_profile <- as.factor(kmeans_result$cluster)
+
+fviz_cluster(kmeans_result, data = cluster_data,
+             geom = "point",
+             ellipse.type = "convex",
+             ggtheme = theme_minimal(),
+             main = "Zip Code Cluster Profiles")
+```
+
+- After looking at the graphs I'd say 3 is most ideal in connection with this project since three categories exist and the clustering works well. 
+
+```{r}
+
+cluster_summary <- df %>%
+  group_by(cluster_profile) %>%
+  summarize(
+    avg_crime = mean(total_crimes, na.rm = TRUE),
+    avg_violent_crime = mean(violent_crimes, na.rm = TRUE),
+    avg_health_clinics = mean(total_health_centers, na.rm = TRUE),
+    avg_mental_health = mean(mental_health_centers, na.rm = TRUE),
+    zip_count = n()
+  )
+
+print(cluster_summary)
+
+```
+- Now assign the personas.
+
+```{r}
+
+df <- df %>%
+  mutate(
+    persona = case_when(
+      cluster_profile == 1 ~ "Intervention Priority",
+      cluster_profile == 2 ~ "Baseline",
+      cluster_profile == 3 ~ "Resource Hubs",
+      TRUE ~ "Other"
+    )
+  )
+
+```
+
+- Now send the csv back out
+
+```{r}
+write.csv(df, "denver_zip_personas.csv", row.names = FALSE)
+```
+
+
+
+
+
+
